@@ -1,198 +1,35 @@
-# Metagenomic workflow for MetaCyc pathway and buglist analyses
+# metagenome_nr_taxa_pipeline
 
-This repository provides a publication-ready workflow starting from `clean_fastq` files.
+A GitHub-ready shotgun metagenome pipeline matching the computational part of the described method:
 
-It contains two parallel analysis branches:
+`fastp -> BWA host removal -> MEGAHIT co-assembly -> Prodigal ORF prediction -> CD-HIT non-redundant gene catalog -> SOAP2 mapping -> DIAMOND NR annotation -> taxon abundance matrix -> LEfSe -> MaAsLin3`
 
-1. **MetaCyc pathway branch**  
-   `clean_fastq -> HUMAnN3 -> *_pathabundance.tsv -> merged MetaCyc matrix -> LEfSe -> Maaslin2`
-2. **Buglist taxonomy branch**  
-   `clean_fastq -> MetaPhlAn -> *_metaphlan_bugs_list.tsv -> merged buglist matrix -> LEfSe -> Maaslin2`
-
-## Repository structure
-
-```text
-metagenome_github_repo/
-├── README.md
-├── .gitignore
-├── metadata/
-│   └── groups.tsv.example
-└── scripts/
-    ├── 01_run_humann_metacyc.sh
-    ├── 02_merge_metacyc.py
-    ├── 03_lefse_metacyc.R
-    ├── 04_maaslin2_metacyc.R
-    ├── 05_run_metaphlan_buglist.sh
-    ├── 06_merge_buglist.py
-    ├── 07_lefse_buglist.R
-    ├── 08_maaslin2_buglist.R
-    └── 09_run_all.sh
-```
-
-So the **minimum recommended upload is 11 files**, and the **complete convenient version is 12 files**.
-
-## Input requirements
-
-### 1. Clean FASTQ files
-Place all cleaned reads in one directory. File names must match one of these patterns:
-- `SRRxxxx.clean.fastq`
-- `SRRxxxx.clean.fq`
-- `SRRxxxx.clean.fastq.gz`
-- `SRRxxxx.clean.fq.gz`
-
-### 2. Group file
-Prepare a tab-delimited metadata file like this:
-
-```tsv
-SampleID	Group
-SRR000001	NO
-SRR000002	YES
-```
-
-- `SampleID` must match the sample names parsed from FASTQ names.
-- For the current LEfSe scripts, **two-group comparison is required**.
-- The reference group for the examples below is `NO`.
-
-## Software requirements
-
-### Server-side
-- Bash
-- Python 3
-- HUMAnN3
-- MetaPhlAn
-- pandas
-
-### R-side
-- data.table
-- dplyr
-- tibble
-- stringr
-- ggplot2
-- SummarizedExperiment
-- S4Vectors
-- lefser
-- Maaslin2
-
-The R scripts will try to install missing packages automatically when possible.
-
-## Branch A: MetaCyc pathway workflow
-
-### Step 1. Run HUMAnN3
+## Run
 
 ```bash
-bash scripts/01_run_humann_metacyc.sh \
-  -i /path/to/clean_fastq \
-  -o /path/to/output/humann_metacyc \
-  -t 8 \
-  -n /path/to/chocophlan \
-  -p /path/to/uniref \
-  -m /path/to/metaphlan_databases
+bash scripts/00_preprocess_fastp_bwa.sh
+bash scripts/01_gene_catalog_nr_annotation.sh
+python scripts/03_sum_nr_taxa_abundance.py \
+  --gene-matrix results/01_gene_catalog/gene_abundance_matrix.tsv \
+  --diamond results/01_gene_catalog/annotation/diamond_nr.tsv \
+  --output results/02_taxa_abundance/taxa_abundance.tsv
+
+Rscript scripts/04_lefse_taxa.R \
+  --input results/02_taxa_abundance/taxa_abundance.tsv \
+  --metadata metadata/groups.tsv \
+  --outdir results/03_lefse \
+  --group-col Group
+
+Rscript scripts/05_maaslin3_taxa.R \
+  --input results/02_taxa_abundance/taxa_abundance.tsv \
+  --metadata metadata/groups.tsv \
+  --outdir results/04_maaslin3 \
+  --fixed-effects Group \
+  --reference Group,NO
 ```
 
-Outputs per sample:
-- `*_genefamilies.tsv`
-- `*_pathabundance.tsv`
-- `*_pathcoverage.tsv`
+## Notes
 
-### Step 2. Merge MetaCyc pathway tables
-
-```bash
-python3 scripts/02_merge_metacyc.py \
-  --input-dir /path/to/output/humann_metacyc \
-  --output /path/to/output/humann_metacyc/metacyc_pathway_matrix_with_annotation.tsv
-```
-
-### Step 3. LEfSe on MetaCyc matrix
-
-```bash
-Rscript scripts/03_lefse_metacyc.R \
-  --input-matrix /path/to/output/humann_metacyc/metacyc_pathway_matrix_with_annotation.tsv \
-  --group-file /path/to/groups.tsv \
-  --outdir /path/to/results/lefse_metacyc \
-  --sample-column SampleID \
-  --group-column Group \
-  --ref-level NO \
-  --case-level YES
-```
-
-### Step 4. Maaslin2 on MetaCyc matrix
-
-```bash
-Rscript scripts/04_maaslin2_metacyc.R \
-  --input-matrix /path/to/output/humann_metacyc/metacyc_pathway_matrix_with_annotation.tsv \
-  --group-file /path/to/groups.tsv \
-  --outdir /path/to/results/maaslin2_metacyc \
-  --sample-column SampleID \
-  --group-column Group \
-  --reference-level NO \
-  --q-cutoff 0.2
-```
-
-## Branch B: Buglist taxonomy workflow
-
-### Step 1. Run MetaPhlAn directly from clean FASTQ
-
-```bash
-bash scripts/05_run_metaphlan_buglist.sh \
-  -i /path/to/clean_fastq \
-  -o /path/to/output/buglist \
-  -t 8 \
-  -m /path/to/metaphlan_databases
-```
-
-Output per sample:
-- `*_metaphlan_bugs_list.tsv`
-
-### Step 2. Merge buglist tables
-
-```bash
-python3 scripts/06_merge_buglist.py \
-  --input-dir /path/to/output/buglist \
-  --output /path/to/output/buglist/bugList_abundance.tsv
-```
-
-### Step 3. LEfSe on buglist matrix
-
-```bash
-Rscript scripts/07_lefse_buglist.R \
-  --input-abundance /path/to/output/buglist/bugList_abundance.tsv \
-  --group-file /path/to/groups.tsv \
-  --outdir /path/to/results/lefse_buglist \
-  --sample-column SampleID \
-  --group-column Group \
-  --ref-level NO \
-  --case-level YES
-```
-
-### Step 4. Maaslin2 on buglist matrix
-
-```bash
-Rscript scripts/08_maaslin2_buglist.R \
-  --input-abundance /path/to/output/buglist/bugList_abundance.tsv \
-  --group-file /path/to/groups.tsv \
-  --outdir /path/to/results/maaslin2_buglist \
-  --sample-column SampleID \
-  --group-column Group \
-  --reference-level NO \
-  --q-cutoff 0.2
-```
-
-## One-command convenience runner
-
-If you want a wrapper for both branches, edit variables in:
-
-```bash
-bash scripts/09_run_all.sh
-```
-
-## Recommended output directories
-
-```text
-results/
-├── humann_metacyc/
-├── buglist/
-├── lefse_metacyc/
-├── maaslin2_metacyc/
-├── lefse_buglist/
-└── maaslin2_buglist/
-```
+- Edit the path variables at the top of `00_preprocess_fastp_bwa.sh` and `01_gene_catalog_nr_annotation.sh` before running.
+- Input files are expected as paired-end FASTQ files named `Sample_R1.fastq.gz` and `Sample_R2.fastq.gz`.
+- `metadata/groups.tsv` must contain at least `SampleID` and the grouping column used in R.
