@@ -1,6 +1,7 @@
 ## Note
 
 This repository contains the code, workflow, and documentation for the analyses presented in the paper:
+
 **Bellwether hypothesis: dominant bacteria steer gut Microbial Nitrogen Metabolism via Additive Effects of Non-differential Species**
 
 # metagenome_pipeline
